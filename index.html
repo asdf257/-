@@ -3127,8 +3127,9 @@
                 if (count === 0) return;
 
                 // 获取该类型所有未完全掌握的课程
+                // 劳动教育课程可以无限次学习，即使完成也可以继续学习
                 const availableCourses = allCourses[type].filter(course => 
-                    !gameState.completedCourseIds.includes(course.id)
+                    type === 'labor' || !gameState.completedCourseIds.includes(course.id)
                 );
 
                 // 按level排序，优先显示低级别课程
@@ -3209,7 +3210,8 @@
                 if (!canLearn) {
                     card.classList.add('locked');
                 }
-                if (isCompleted) {
+                // 劳动教育课程可以无限次学习，即使完成也不标记为completed
+                if (isCompleted && course.type !== 'labor') {
                     card.classList.add('completed');
                 }
 
@@ -3246,7 +3248,8 @@
                     <span class="course-badge">✓</span>
                 `;
                 
-                if (canLearn && !isCompleted) {
+                // 劳动教育课程可以无限次学习，即使完成也可以点击
+                if (canLearn && (course.type === 'labor' || !isCompleted)) {
                     card.onclick = () => toggleCourse(course, card);
                 } else if (!canLearn) {
                     card.onclick = () => showMessage(`🔒 【${course.name}】暂时无法学习\n\n解锁条件：\n${reasons.map(r => `${r.icon} ${r.text}${r.current !== undefined ? ` (当前: ${r.current})` : ''}`).join('\n')}`);
@@ -3556,8 +3559,9 @@
                 const currentProgress = gameState.courseProgress[course.id];
                 
                 // 判断是否完成课程
+                // 劳动教育课程可以无限次学习，不会被标记为完成
                 const isCompleted = currentProgress >= requiredTimes;
-                if (isCompleted && !gameState.completedCourseIds.includes(course.id)) {
+                if (isCompleted && course.type !== 'labor' && !gameState.completedCourseIds.includes(course.id)) {
                     gameState.completedCourseIds.push(course.id);
                 }
 
@@ -4061,6 +4065,7 @@
             timeLeft: 15,
             timer: null,
             targetSpawnTimer: null,
+            maintainTimer: null, // 维护目标数量的定时器
             course: null,
             bonusPoints: 0,
             targetIdCounter: 0,
@@ -4088,8 +4093,8 @@
             gameResult.style.display = 'none';
             gameArea.innerHTML = '';
             
-            // 开始时生成7个目标
-            const initialTargetCount = 7;
+            // 开始时生成5个目标（确保至少有5个）
+            const initialTargetCount = 5;
             for (let i = 0; i < initialTargetCount; i++) {
                 setTimeout(() => {
                     spawnNewTarget();
@@ -4101,6 +4106,13 @@
             
             // 开始计时
             startShootingTimer();
+            
+            // 启动维护目标数量的定时器（每0.5秒检查一次）
+            shootingGameState.maintainTimer = setInterval(() => {
+                if (shootingGameState.isGameActive) {
+                    maintainMinimumTargets();
+                }
+            }, 500);
             
             // 显示游戏弹窗
             document.getElementById('shootingGameModal').classList.add('show');
@@ -4192,6 +4204,29 @@
             return false;
         }
 
+        // 维护至少5个目标
+        function maintainMinimumTargets() {
+            if (!shootingGameState.isGameActive) return;
+            
+            // 计算当前活跃目标数量（未击中且仍在DOM中的）
+            const activeTargets = shootingGameState.targets.filter(t => 
+                !t.hit && t.element && t.element.parentNode
+            ).length;
+            const minTargets = 5;
+            
+            // 如果活跃目标少于5个，补充到5个
+            if (activeTargets < minTargets) {
+                const needToSpawn = minTargets - activeTargets;
+                for (let i = 0; i < needToSpawn; i++) {
+                    setTimeout(() => {
+                        if (shootingGameState.isGameActive) {
+                            spawnNewTarget();
+                        }
+                    }, i * 100); // 稍微错开时间
+                }
+            }
+        }
+
         // 目标自动消失
         function disappearTarget(targetData) {
             if (targetData.hit) return;
@@ -4210,6 +4245,8 @@
                 if (index > -1) {
                     shootingGameState.targets.splice(index, 1);
                 }
+                // 目标消失后，检查是否需要补充
+                maintainMinimumTargets();
             }, 300);
         }
 
@@ -4242,6 +4279,8 @@
                 if (index > -1) {
                     shootingGameState.targets.splice(index, 1);
                 }
+                // 目标被击中后，检查是否需要补充
+                maintainMinimumTargets();
             }, 300);
         }
 
@@ -4270,6 +4309,9 @@
             }
             if (shootingGameState.targetSpawnTimer) {
                 clearTimeout(shootingGameState.targetSpawnTimer);
+            }
+            if (shootingGameState.maintainTimer) {
+                clearInterval(shootingGameState.maintainTimer);
             }
             
             // 停止游戏
@@ -4355,6 +4397,9 @@
             if (shootingGameState.targetSpawnTimer) {
                 clearTimeout(shootingGameState.targetSpawnTimer);
             }
+            if (shootingGameState.maintainTimer) {
+                clearInterval(shootingGameState.maintainTimer);
+            }
             
             // 停止游戏
             shootingGameState.isGameActive = false;
@@ -4381,6 +4426,7 @@
             shootingGameState.bonusPoints = 0;
             shootingGameState.timer = null;
             shootingGameState.targetSpawnTimer = null;
+            shootingGameState.maintainTimer = null;
             shootingGameState.targetIdCounter = 0;
         }
 
